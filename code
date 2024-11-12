@@ -1,0 +1,202 @@
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <cstdlib>
+#include <ctime>
+#include <queue>
+#include <queue>
+#include <map>
+
+// Estructura para representar un arco
+struct Arco {
+    int destino;
+    int peso;
+};
+
+// Estructura para representar un vértice del grafo
+struct Vertice {
+    int id;
+    std::vector<Arco> adyacentes;
+};
+
+// Estructura para representar una persona
+struct Persona {
+    int id;
+    int grupoId;
+    int posicionActual;
+    std::vector<int> ruta;  // Camino en el MST hacia el punto de encuentro
+};
+
+// Estructura para representar un nodo del árbol binario de un grupo
+struct NodoGrupo {
+    Persona* persona;
+    NodoGrupo* izquierda;
+    NodoGrupo* derecha;
+};
+
+// Estructura para representar un grupo como un árbol binario de personas
+struct Grupo {
+    int id;
+    NodoGrupo* raiz;
+};
+
+// Función para leer la configuración desde el archivo
+void leerConfiguracion(int& numVertices, int& numPersonas, int& numGrupos) {
+    std::ifstream archivo("C:\\Users\\EQUIPO\\Desktop\\untitled1\\configuracion.txt");
+    if (!archivo.is_open()) {
+        std::cerr << "Error al abrir el archivo de configuracion\n";
+        exit(1);
+    }
+
+    std::string linea;
+    while (std::getline(archivo, linea)) {
+        if (linea.find("vertices=") == 0)
+            numVertices = std::stoi(linea.substr(9));
+        else if (linea.find("personas=") == 0)
+            numPersonas = std::stoi(linea.substr(9));
+        else if (linea.find("grupos=") == 0)
+            numGrupos = std::stoi(linea.substr(7));
+    }
+}
+
+// Genera un grafo conexo y añadir ciclos
+void generarGrafoConexo(std::vector<Vertice>& grafo, int numVertices) {
+    // Inicializa vértices
+    for (int i = 1; i <= numVertices; ++i) { // Ahora inicia en 1
+        grafo.push_back({i, {}});
+    }
+
+    // Genera árbol conexo inicial sin ciclos
+    for (int i = 2; i <= numVertices; ++i) { // Empieza en 2 para conectar con vértices anteriores
+        int j = 1 + rand() % (i - 1); // j es un vértice anterior
+        int peso = rand() % 10 + 1;
+        grafo[i - 1].adyacentes.push_back({j, peso});
+        grafo[j - 1].adyacentes.push_back({i, peso});
+    }
+
+    // Añade arcos adicionales para crear ciclos
+    int extraEdges = numVertices / 2;
+    for (int i = 0; i < extraEdges; ++i) {
+        int v1 = 1 + rand() % numVertices;
+        int v2 = 1 + rand() % numVertices;
+        if (v1 != v2) {
+            int peso = rand() % 10 + 1;
+            grafo[v1 - 1].adyacentes.push_back({v2, peso});
+            grafo[v2 - 1].adyacentes.push_back({v1, peso});
+        }
+    }
+}
+
+// Inserta una persona en el árbol binario de su grupo
+NodoGrupo* insertarEnArbol(NodoGrupo* nodo, Persona* persona) {
+    if (nodo == nullptr) {
+        NodoGrupo* nuevoNodo = new NodoGrupo{persona, nullptr, nullptr};
+        return nuevoNodo;
+    }
+    if (persona->id < nodo->persona->id)
+        nodo->izquierda = insertarEnArbol(nodo->izquierda, persona);
+    else
+        nodo->derecha = insertarEnArbol(nodo->derecha, persona);
+    return nodo;
+}
+
+// Asigna personas a vértices aleatorios y crear grupos
+void asignarPersonas(std::vector<Persona>& personas, std::vector<Grupo>& grupos, std::vector<Vertice>& grafo, int numPersonas, int numGrupos) {
+    for (int i = 1; i <= numPersonas; ++i) { // Ahora inicia en 1
+        Persona persona;
+        persona.id = i;
+        persona.grupoId = i % numGrupos;
+        persona.posicionActual = 1 + rand() % grafo.size(); // Ahora va de 1 a numVertices
+        personas.push_back(persona);
+
+        // Inserta la persona en el árbol binario de su grupo
+        if (grupos.size() <= persona.grupoId) grupos.resize(persona.grupoId + 1);
+        grupos[persona.grupoId].id = persona.grupoId;
+        grupos[persona.grupoId].raiz = insertarEnArbol(grupos[persona.grupoId].raiz, &personas.back());
+    }
+}
+
+// Calcula el MST usando el algoritmo de Prim
+void calcularMST(std::vector<Vertice>& grafo, Persona& persona, int puntoDeEncuentro) {
+    std::vector<bool> visitado(grafo.size(), false);
+    // Esto es una cola de prioridad, no una normal
+    // La cola de prioridad de hace en base al peso de los arcos, en cuanto menor es el peso, mayor prioridad tiene
+    // Esto es asi para agilizar el procso, como se manejan primero las mas cortas
+    std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<>> cola;
+    cola.push({0, persona.posicionActual});
+
+    std::map<int, int> padres;  
+    padres[persona.posicionActual] = -1;
+
+    while (!cola.empty()) {
+        int actual = cola.top().second;
+        cola.pop();
+        if (visitado[actual]) continue;
+        visitado[actual] = true;
+
+        for (const auto& arco : grafo[actual].adyacentes) {
+            if (!visitado[arco.destino]) {
+                padres[arco.destino] = actual;
+                cola.push({arco.peso, arco.destino});
+            }
+        }
+    }
+
+    // Crea la construcción de la ruta hasta el puntode encuentro
+    int vertice = puntoDeEncuentro;
+    while (vertice != -1) {
+        persona.ruta.push_back(vertice);
+        vertice = padres[vertice];
+    }
+}
+
+// Hace la simulación del movimiento hacia el punto de encuentro
+void simularMovimiento(std::vector<Persona>& personas, const std::vector<Vertice>& grafo, int puntoDeEncuentro) {
+    int iteracion = 0;
+    bool terminado = false;
+
+    while (!terminado) {
+        std::cout << "\nIteracion " << ++iteracion << ":\n";
+        terminado = true;
+
+        for (auto& persona : personas) {
+            if (persona.posicionActual != puntoDeEncuentro) {
+                if (!persona.ruta.empty()) {
+                    persona.posicionActual = persona.ruta.back();
+                    persona.ruta.pop_back();
+                }
+                std::cout << "Persona " << persona.id << " avanza al vertice " << persona.posicionActual << "\n";
+                terminado = false;
+            } else {
+                std::cout << "Persona " << persona.id << " ha llegado al punto de encuentro.\n";
+            }
+        }
+    }
+}
+
+int main() {
+    srand(static_cast<unsigned>(time(0)));
+
+    int numVertices, numPersonas, numGrupos;
+    leerConfiguracion(numVertices, numPersonas, numGrupos);
+
+    std::vector<Vertice> grafo;
+    generarGrafoConexo(grafo, numVertices);
+
+    std::vector<Persona> personas;
+    std::vector<Grupo> grupos;
+    asignarPersonas(personas, grupos, grafo, numPersonas, numGrupos);
+
+    int puntoDeEncuentro = rand() % numVertices;
+
+    // Calcula MST 
+    for (auto& persona : personas) {
+        calcularMST(grafo, persona, puntoDeEncuentro);
+    }
+
+    // Simula el movimiento
+    std::cout << "\nIniciando simulacion...\n";
+    simularMovimiento(personas, grafo, puntoDeEncuentro);
+
+    return 0;
+}
